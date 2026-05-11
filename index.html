@@ -1792,41 +1792,55 @@ function initTilt(){
   });
 }
 
-/* ── PRODUCTS ── */
+/* ── PRODUCTS (synced from admin panel) ── */
 const POT_DESC = 'Ceramic Cookware Set Non Stick 23Pcs Pots and Pans Set Non Toxic with Detachable Handle';
-const products = [
-  {id:1,name:'Queen Size Bed & Mattress',desc:'Complete set — solid bed frame with premium queen size mattress included',price:1400,img:'bed-queen.jpg',emoji:'🛏️',cat:'beds',badge:'Bestseller'},
-  {id:2,name:'King Size Bed & Mattress', desc:'Complete set — solid king size bed frame with premium king size mattress included',price:1800,img:'bed-king.jpg',emoji:'🛏️',cat:'beds',badge:null},
-  {id:3,name:'Ceramic Cookware — Black', desc:POT_DESC,price:595,img:'pots-black.jpg',emoji:'🍳',cat:'pots',badge:null},
-  {id:4,name:'Ceramic Cookware — Aqua',  desc:POT_DESC,price:595,img:'pots-aqua.jpg', emoji:'🍳',cat:'pots',badge:null},
-  {id:5,name:'Ceramic Cookware — Premium',desc:POT_DESC,price:625,img:'pots-625.jpg', emoji:'🥘',cat:'pots',badge:'Premium'},
-  {id:6,name:'Ceramic Cookware — Classic',desc:POT_DESC,price:565,img:'pots-565.jpg', emoji:'🥘',cat:'pots',badge:null},
+const FALLBACK_PRODUCTS = [
+  {id:1,name:'Queen Size Bed & Mattress',desc:'Complete set — solid bed frame with premium queen size mattress included',price:1400,img:'bed-queen.jpg',emoji:'🛏️',cat:'beds',badge:'Bestseller',visible:true},
+  {id:2,name:'King Size Bed & Mattress', desc:'Complete set — solid king size bed frame with premium king size mattress included',price:1800,img:'bed-king.jpg',emoji:'🛏️',cat:'beds',badge:null,visible:true},
+  {id:3,name:'Ceramic Cookware — Black', desc:POT_DESC,price:595,img:'pots-black.jpg',emoji:'🍳',cat:'pots',badge:null,visible:true},
+  {id:4,name:'Ceramic Cookware — Aqua',  desc:POT_DESC,price:595,img:'pots-aqua.jpg', emoji:'🍳',cat:'pots',badge:null,visible:true},
+  {id:5,name:'Ceramic Cookware — Premium',desc:POT_DESC,price:625,img:'pots-625.jpg', emoji:'🥘',cat:'pots',badge:'Premium',visible:true},
+  {id:6,name:'Ceramic Cookware — Classic',desc:POT_DESC,price:565,img:'pots-565.jpg', emoji:'🥘',cat:'pots',badge:null,visible:true},
 ];
+
+function loadProductsFromAdmin(){
+  try {
+    const stored = localStorage.getItem('ambience_products');
+    if(stored){
+      const parsed = JSON.parse(stored);
+      if(Array.isArray(parsed) && parsed.length) return parsed;
+    }
+  } catch(e){}
+  return FALLBACK_PRODUCTS;
+}
+
+let products = loadProductsFromAdmin().filter(p => p.visible !== false);
 let cart=[];
 
 function renderProducts(filter='all'){
   const grid=document.getElementById('p-grid');
   const list=filter==='all'?products:products.filter(p=>p.cat===filter);
-  grid.innerHTML=list.map((p,i)=>`
-    <div class="p-card reveal" style="transition-delay:${i*.09}s">
+  grid.innerHTML=list.map((p,i)=>{
+    const hasImg = !!p.img;
+    return `<div class="p-card reveal" style="transition-delay:${i*.09}s">
       <div class="p-img">
         ${p.badge?`<div class="p-badge">${p.badge}</div>`:''}
-        <img src="${p.img}" alt="${p.name}"
-          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="p-placeholder" style="display:none">
-          <span class="p-ph-icon">${p.emoji}</span>
-          <span class="p-ph-label">Upload ${p.img}</span>
+        ${hasImg?`<img src="${p.img}" alt="${p.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:''}
+        <div class="p-placeholder" style="display:${hasImg?'none':'flex'}">
+          <span class="p-ph-icon">${p.emoji||'🛏️'}</span>
+          <span class="p-ph-label">${p.name}</span>
         </div>
       </div>
       <div class="p-info">
         <div class="p-name">${p.name}</div>
         <div class="p-desc">${p.desc}</div>
         <div class="p-foot">
-          <div class="p-price"><sup>$</sup>${p.price.toLocaleString()}</div>
-          <button class="p-add" onclick="addToCart(${p.id})"><span>+</span></button>
+          <div class="p-price"><sup>$</sup>${Number(p.price).toLocaleString()}</div>
+          <button class="p-add" onclick="addToCart(''+String(p.id)+'')"><span>+</span></button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   grid.querySelectorAll('.p-card').forEach(el=>io.observe(el));
   setTimeout(initTilt,100);
 }
@@ -1853,7 +1867,7 @@ function closeMenu(){
 
 /* ── CART ── */
 function addToCart(id){
-  const p=products.find(p=>p.id===id);
+  const p=products.find(p=>String(p.id)===String(id));
   const ex=cart.find(c=>c.id===id);
   if(ex) ex.qty++; else cart.push({...p,qty:1});
   updateCart();
