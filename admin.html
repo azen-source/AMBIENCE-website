@@ -609,12 +609,18 @@ body::before {
       <!-- Image upload -->
       <div class="fg">
         <label>Product Image</label>
-        <div class="img-upload-area" onclick="document.getElementById('img-input').click()">
+        <div class="img-upload-area" id="upload-area" onclick="document.getElementById('img-input').click()">
           <input type="file" id="img-input" accept="image/*" onchange="handleImgUpload(event)" style="display:none">
-          <div class="img-upload-icon">🖼️</div>
-          <div class="img-upload-text">
-            <strong>Click to upload image</strong>
-            JPG, PNG, WEBP supported
+          <div id="upload-idle">
+            <div class="img-upload-icon">🖼️</div>
+            <div class="img-upload-text">
+              <strong>Click to upload image</strong>
+              Uploads to Cloudinary — visible to everyone worldwide
+            </div>
+          </div>
+          <div id="upload-progress" style="display:none;padding:8px 0">
+            <div class="img-upload-icon">⏳</div>
+            <div class="img-upload-text"><strong>Uploading...</strong></div>
           </div>
           <img class="img-preview" id="img-preview" src="" alt="Preview">
         </div>
@@ -690,23 +696,68 @@ function doLogout(){
 }
 
 /* ══════════════════════════════════
+   JSONBIN CONFIG
+══════════════════════════════════ */
+const JSONBIN_KEY = '$2a$10$Nw6dRJ/IreS88Dt73T4qV.AdbkogIBOyryEAxJwrnMEzDt2aDQmcG';
+const JSONBIN_URL = 'https://api.jsonbin.io/v3/b';
+let BIN_ID = '6a0298d9adc21f119a887f59';
+
+/* ══════════════════════════════════
    STORAGE
 ══════════════════════════════════ */
 let products = [];
 let catFilter = 'all';
 let editingId = null;
 
-function loadProducts(){
+async function loadProducts(){
   try {
-    const stored = localStorage.getItem('ambience_products');
-    products = stored ? JSON.parse(stored) : getDefaultProducts();
-    if(!stored) saveToStorage();
-  } catch(e){ products = getDefaultProducts(); }
+    if(BIN_ID){
+      const res = await fetch(JSONBIN_URL + '//' + BIN_ID + '/latest', {
+        headers: { 'X-Master-Key': JSONBIN_KEY }
+      });
+      const data = await res.json();
+      products = data.record.products || [];
+    } else {
+      products = getDefaultProducts();
+      await saveToStorage();
+    }
+  } catch(e){
+    products = getDefaultProducts();
+  }
   refresh();
 }
 
-function saveToStorage(){
-  localStorage.setItem('ambience_products', JSON.stringify(products));
+async function saveToStorage(){
+  try {
+    const payload = { products };
+    if(BIN_ID){
+      await fetch(JSONBIN_URL + '//' + BIN_ID, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY
+        },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      const res = await fetch(JSONBIN_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY,
+          'X-Bin-Name': 'ambience-products',
+          'X-Bin-Private': 'false'
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      BIN_ID = data.metadata.id;
+      // BIN_ID is hardcoded
+    }
+  } catch(e){
+    console.error('Save failed:', e);
+    toast('Failed to save. Check connection.', 'error');
+  }
 }
 
 function getDefaultProducts(){
@@ -870,21 +921,48 @@ function handleVeilClick(e){
   if(e.target === document.getElementById('modal-veil')) closeModal();
 }
 
-function handleImgUpload(e){
+const CLOUDINARY_CLOUD = 'dsaznzboj';
+const CLOUDINARY_PRESET = 'ambience_unsigned';
+
+async function handleImgUpload(e){
   const file = e.target.files[0];
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const data = ev.target.result;
-    document.getElementById('img-data').value = data;
+
+  // Show progress
+  document.getElementById('upload-idle').style.display = 'none';
+  document.getElementById('upload-progress').style.display = 'block';
+  document.getElementById('upload-area').style.pointerEvents = 'none';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_PRESET);
+
+    const res = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if(!res.ok) throw new Error('Upload failed');
+    const data = await res.json();
+    const url = data.secure_url;
+
+    document.getElementById('img-data').value = url;
     const preview = document.getElementById('img-preview');
-    preview.src = data;
+    preview.src = url;
     preview.classList.add('show');
-  };
-  reader.readAsDataURL(file);
+    toast('Image uploaded successfully', 'success');
+  } catch(err) {
+    toast('Upload failed. Check your Cloudinary preset.', 'error');
+    console.error(err);
+  } finally {
+    document.getElementById('upload-idle').style.display = 'block';
+    document.getElementById('upload-progress').style.display = 'none';
+    document.getElementById('upload-area').style.pointerEvents = 'auto';
+  }
 }
 
-function saveProduct(){
+async function saveProduct(){
   const name  = document.getElementById('f-name').value.trim();
   const price = parseFloat(document.getElementById('f-price').value);
   const cat   = document.getElementById('f-cat').value;
@@ -907,7 +985,7 @@ function saveProduct(){
     toast('Product added','success');
   }
 
-  saveToStorage();
+  await saveToStorage();
   refresh();
   closeModal();
 }
@@ -915,21 +993,21 @@ function saveProduct(){
 /* ══════════════════════════════════
    PRODUCT ACTIONS
 ══════════════════════════════════ */
-function toggleVisible(id){
+async function toggleVisible(id){
   const p = products.find(p=>p.id===id);
   if(!p) return;
   p.visible = !p.visible;
-  saveToStorage();
+  await saveToStorage();
   refresh();
   toast(p.visible ? 'Product is now visible' : 'Product hidden from site','success');
 }
 
-function deleteProduct(id){
+async function deleteProduct(id){
   const p = products.find(p=>p.id===id);
   if(!p) return;
   if(!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
   products = products.filter(p=>p.id!==id);
-  saveToStorage();
+  await saveToStorage();
   refresh();
   toast('Product deleted','success');
 }
