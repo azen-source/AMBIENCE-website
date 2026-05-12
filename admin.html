@@ -609,18 +609,12 @@ body::before {
       <!-- Image upload -->
       <div class="fg">
         <label>Product Image</label>
-        <div class="img-upload-area" id="upload-area" onclick="document.getElementById('img-input').click()">
+        <div class="img-upload-area" onclick="document.getElementById('img-input').click()">
           <input type="file" id="img-input" accept="image/*" onchange="handleImgUpload(event)" style="display:none">
-          <div id="upload-idle">
-            <div class="img-upload-icon">🖼️</div>
-            <div class="img-upload-text">
-              <strong>Click to upload image</strong>
-              Uploads to Cloudinary — visible to everyone worldwide
-            </div>
-          </div>
-          <div id="upload-progress" style="display:none;padding:8px 0">
-            <div class="img-upload-icon">⏳</div>
-            <div class="img-upload-text"><strong>Uploading...</strong></div>
+          <div class="img-upload-icon">🖼️</div>
+          <div class="img-upload-text">
+            <strong>Click to upload image</strong>
+            JPG, PNG, WEBP supported
           </div>
           <img class="img-preview" id="img-preview" src="" alt="Preview">
         </div>
@@ -696,75 +690,23 @@ function doLogout(){
 }
 
 /* ══════════════════════════════════
-   GITHUB CONFIG
-══════════════════════════════════ */
-const GH_TOKEN = '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';
-const GH_REPO  = 'azen-source/AMBIENCE-website';
-const GH_FILE  = 'products.json';
-const GH_API   = 'https://api.github.com/repos/' + GH_REPO + '/contents/' + GH_FILE;
-
-/* ══════════════════════════════════
    STORAGE
 ══════════════════════════════════ */
 let products = [];
 let catFilter = 'all';
 let editingId = null;
-let fileSHA = null;
 
-async function loadProducts(){
+function loadProducts(){
   try {
-    const res = await fetch(GH_API, {
-      headers: {
-        'Authorization': 'token ' + GH_TOKEN,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    });
-    if(res.ok){
-      const data = await res.json();
-      fileSHA = data.sha;
-      const decoded = JSON.parse(atob(data.content));
-      products = decoded.products || [];
-    } else {
-      products = getDefaultProducts();
-      await saveToStorage();
-    }
-  } catch(e){
-    console.error('Load failed:', e);
-    products = getDefaultProducts();
-  }
+    const stored = localStorage.getItem('ambience_products');
+    products = stored ? JSON.parse(stored) : getDefaultProducts();
+    if(!stored) saveToStorage();
+  } catch(e){ products = getDefaultProducts(); }
   refresh();
 }
 
-async function saveToStorage(){
-  try {
-    const payload = { products };
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-    const body = {
-      message: 'Update products',
-      content: encoded,
-      ...(fileSHA ? { sha: fileSHA } : {})
-    };
-    const res = await fetch(GH_API, {
-      method: 'PUT',
-      headers: {
-        'Authorization': 'token ' + GH_TOKEN,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-    if(res.ok){
-      const data = await res.json();
-      fileSHA = data.content.sha;
-    } else {
-      const err = await res.json();
-      console.error('GitHub save error:', err);
-      toast('Save failed: ' + (err.message||'unknown error'), 'error');
-    }
-  } catch(e){
-    console.error('Save failed:', e);
-    toast('Failed to save. Check connection.', 'error');
-  }
+function saveToStorage(){
+  localStorage.setItem('ambience_products', JSON.stringify(products));
 }
 
 function getDefaultProducts(){
@@ -928,48 +870,21 @@ function handleVeilClick(e){
   if(e.target === document.getElementById('modal-veil')) closeModal();
 }
 
-const CLOUDINARY_CLOUD = 'dsaznzboj';
-const CLOUDINARY_PRESET = 'ambience_unsigned';
-
-async function handleImgUpload(e){
+function handleImgUpload(e){
   const file = e.target.files[0];
   if(!file) return;
-
-  // Show progress
-  document.getElementById('upload-idle').style.display = 'none';
-  document.getElementById('upload-progress').style.display = 'block';
-  document.getElementById('upload-area').style.pointerEvents = 'none';
-
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', CLOUDINARY_PRESET);
-
-    const res = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/upload', {
-      method: 'POST',
-      body: formData
-    });
-
-    if(!res.ok) throw new Error('Upload failed');
-    const data = await res.json();
-    const url = data.secure_url;
-
-    document.getElementById('img-data').value = url;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const data = ev.target.result;
+    document.getElementById('img-data').value = data;
     const preview = document.getElementById('img-preview');
-    preview.src = url;
+    preview.src = data;
     preview.classList.add('show');
-    toast('Image uploaded successfully', 'success');
-  } catch(err) {
-    toast('Upload failed. Check your Cloudinary preset.', 'error');
-    console.error(err);
-  } finally {
-    document.getElementById('upload-idle').style.display = 'block';
-    document.getElementById('upload-progress').style.display = 'none';
-    document.getElementById('upload-area').style.pointerEvents = 'auto';
-  }
+  };
+  reader.readAsDataURL(file);
 }
 
-async function saveProduct(){
+function saveProduct(){
   const name  = document.getElementById('f-name').value.trim();
   const price = parseFloat(document.getElementById('f-price').value);
   const cat   = document.getElementById('f-cat').value;
@@ -992,7 +907,7 @@ async function saveProduct(){
     toast('Product added','success');
   }
 
-  await saveToStorage();
+  saveToStorage();
   refresh();
   closeModal();
 }
@@ -1000,21 +915,21 @@ async function saveProduct(){
 /* ══════════════════════════════════
    PRODUCT ACTIONS
 ══════════════════════════════════ */
-async function toggleVisible(id){
+function toggleVisible(id){
   const p = products.find(p=>p.id===id);
   if(!p) return;
   p.visible = !p.visible;
-  await saveToStorage();
+  saveToStorage();
   refresh();
   toast(p.visible ? 'Product is now visible' : 'Product hidden from site','success');
 }
 
-async function deleteProduct(id){
+function deleteProduct(id){
   const p = products.find(p=>p.id===id);
   if(!p) return;
   if(!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
   products = products.filter(p=>p.id!==id);
-  await saveToStorage();
+  saveToStorage();
   refresh();
   toast('Product deleted','success');
 }
