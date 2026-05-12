@@ -696,11 +696,12 @@ function doLogout(){
 }
 
 /* ══════════════════════════════════
-   JSONBIN CONFIG
+   GITHUB CONFIG
 ══════════════════════════════════ */
-const JSONBIN_KEY = '$2a$10$Nw6dRJ/IreS88Dt73T4qV.AdbkogIBOyryEAxJwrnMEzDt2aDQmcG';
-const JSONBIN_URL = 'https://api.jsonbin.io/v3/b';
-let BIN_ID = '6a0298d9adc21f119a887f59';
+const GH_TOKEN = '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';
+const GH_REPO  = 'azen-source/AMBIENCE-website';
+const GH_FILE  = 'products.json';
+const GH_API   = 'https://api.github.com/repos/' + GH_REPO + '/contents/' + GH_FILE;
 
 /* ══════════════════════════════════
    STORAGE
@@ -708,20 +709,27 @@ let BIN_ID = '6a0298d9adc21f119a887f59';
 let products = [];
 let catFilter = 'all';
 let editingId = null;
+let fileSHA = null;
 
 async function loadProducts(){
   try {
-    if(BIN_ID){
-      const res = await fetch(JSONBIN_URL + '//' + BIN_ID + '/latest', {
-        headers: { 'X-Master-Key': JSONBIN_KEY }
-      });
+    const res = await fetch(GH_API, {
+      headers: {
+        'Authorization': 'token ' + GH_TOKEN,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+    if(res.ok){
       const data = await res.json();
-      products = data.record.products || [];
+      fileSHA = data.sha;
+      const decoded = JSON.parse(atob(data.content));
+      products = decoded.products || [];
     } else {
       products = getDefaultProducts();
       await saveToStorage();
     }
   } catch(e){
+    console.error('Load failed:', e);
     products = getDefaultProducts();
   }
   refresh();
@@ -730,29 +738,28 @@ async function loadProducts(){
 async function saveToStorage(){
   try {
     const payload = { products };
-    if(BIN_ID){
-      await fetch(JSONBIN_URL + '//' + BIN_ID, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Master-Key': JSONBIN_KEY
-        },
-        body: JSON.stringify(payload)
-      });
-    } else {
-      const res = await fetch(JSONBIN_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Master-Key': JSONBIN_KEY,
-          'X-Bin-Name': 'ambience-products',
-          'X-Bin-Private': 'false'
-        },
-        body: JSON.stringify(payload)
-      });
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+    const body = {
+      message: 'Update products',
+      content: encoded,
+      ...(fileSHA ? { sha: fileSHA } : {})
+    };
+    const res = await fetch(GH_API, {
+      method: 'PUT',
+      headers: {
+        'Authorization': 'token ' + GH_TOKEN,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    if(res.ok){
       const data = await res.json();
-      BIN_ID = data.metadata.id;
-      // BIN_ID is hardcoded
+      fileSHA = data.content.sha;
+    } else {
+      const err = await res.json();
+      console.error('GitHub save error:', err);
+      toast('Save failed: ' + (err.message||'unknown error'), 'error');
     }
   } catch(e){
     console.error('Save failed:', e);
